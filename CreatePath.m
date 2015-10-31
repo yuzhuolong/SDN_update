@@ -1,7 +1,7 @@
 %%%%%%%%%%          Create feasible pathes     %%%%%%%%%%%%%%%%
 function [pathSet] = CreatePath(cost, start, terminal, Quantity)
     global numNode;
-    pathSet = zeros(5,numNode);
+    pathSet = zeros(Quantity,numNode);
     tempCost = cost;
     tempPath = Shortest(cost, start, terminal);
     %%%%%  To be optimized!!!!   %%%%%
@@ -9,7 +9,7 @@ function [pathSet] = CreatePath(cost, start, terminal, Quantity)
         pathSet(1,i) = tempPath(i);
     end
     
-    for index = 2:1:5
+    for index = 2:1:Quantity
         i = 1;
         j = 2;
         len = length(tempPath);
@@ -24,8 +24,10 @@ function [pathSet] = CreatePath(cost, start, terminal, Quantity)
                 disp 1;
                 return;
             end
-            tempCost(u,v) = tempCost(u,v) * 3;
-            tempCost(v,u) = tempCost(v,u) * 3;
+         %   if (u ~= start) && (u ~= terminal) && (v ~= start) && (v ~= terminal) 
+                tempCost(u,v) = tempCost(u,v) * 3;
+                tempCost(v,u) = tempCost(v,u) * 3;
+           % end
             i = i + 1;
             j = j + 1;
         end
