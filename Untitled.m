@@ -11,28 +11,31 @@ DELTA = 1E-8;
 %%%%%%%%%%      environment setting   %%%%%%%%
 %%%%%%%%%%%     version 1 (small)     %%%%%%%%
 %{
-FLOWNUM = 5000;
+FLOWNUM = 500;
 INFINITY = 10000000;
 QUANTITY = 5;
 TIMEMODIFY = 0.2;
 TIMEINSERT = 0.2;
-TIMELIMIT = 5;
+TIMELIMIT = 10;
+INPUTFILE = 'input_20_10.txt';
 %}
 
 %%%%%%%%%%%     version 2 (big)     %%%%%%%%%%
-FLOWNUM = 200000;
+
+FLOWNUM = 50000;
 INFINITY = 10000000;
 QUANTITY = 3;
 TIMEMODIFY = 0.2;
 TIMEINSERT = 0.2;
 TIMELIMIT = 5;
+INPUTFILE = 'input_200_100.txt';
 
 
 %%%%%%%%%%          get the graph   %%%%%%%%%%
 numNode = 0;
 numSwitch = 0;
 numHost = 0;
-fileIn = fopen('input_20_10.txt','r');
+fileIn = fopen(INPUTFILE,'r');
 numNode = fscanf(fileIn, '%d', 1);
 numHost = fscanf(fileIn, '%d', 1);
 numSwitch = fscanf(fileIn, '%d', 1);
@@ -205,7 +208,7 @@ b = zeros(numNode + numRoad, 1);
 for i = 1:1:numNode
     b(i, 1) = TIMELIMIT;
 end
-b
+%b
 
 %Aeq = zeros(FLOWNUM, NN);
 Aeq = sparse(FLOWNUM, NN);
@@ -230,13 +233,111 @@ toc;
 lamda = resultGRSU(end);
 lamda
 
-b0 = A * resultGRSU;
-b0
-beq0 = Aeq * resultGRSU;
-beq0
+
+%%%%%%%%%%%%%%%         Greedy Part             %%%%%%%%%%%%%%%%%%%%%%%%
+weight = zeros(numNode, numNode);
+deployTime = zeros(numNode, FLOWNUM);
+timeStack = zeros(1, numNode);
+
+tempWeight = zeros(numNode, numNode);
+tempDeployTime = zeros(numNode, FLOWNUM);
+tempTimeStack = zeros(1, numNode);
+
+z = zeros(1, FLOWNUM);
+for i = 1:1:FLOWNUM
+    p = flowOSPF(i);
+    z(i) = 1 - resultGRSU((i-1) * QUANTITY + p);
+end
+[zTemp, zDescend] = sort(z, 'descend');
+countUnchange = 0;
+for i = 1:1:FLOWNUM
+    j = zDescend(i);      %%% choose the flow j  
+    %FLOWNUM
+    tempY = resultGRSU((j-1)*QUANTITY + 1 : j*QUANTITY);
+    [yTemp, yDescend] = sort(tempY, 'descend');
+    
+    tempWeight = weight;
+    tempDeployTime = deployTime;
+    tempTimeStack = timeStack; 
+    flag = 1;
+    %%%%%%%%%%    try to contain the best flow   %%%%%%%%%%%
+    for k = 1:1:QUANTITY
+        p = yDescend(k);    %%%% choose path NO.p
+        %%%%%%%%%%%%%   try   %%%%%%%%%%%%%%%%%
+        u = flowStart(j);
+        v = flowTerminal(j);
+        ii = 1;
+        jj = 2;
+        uu = pathSet(u,v,p,ii);
+        vv = pathSet(u,v,p,jj);
+        maxValue = 0;
+        while (vv ~= 0)
+            tempWeight(uu,vv) = tempWeight(uu,vv) + flowSize(j);
+            tempWeight(vv,uu) = tempWeight(uu,vv);
+            if (tempWeight(uu,vv) > capacity(uu,vv))
+                flag = 0;
+                break;
+            end
+            if ((jj > 2) && (vv >numHost))
+                tempDeployTime(vv, j) = tempTimeStack(vv);
+                tempTimeStack(vv) = tempTimeStack(vv) + TIMEINSERT;
+                maxValue = max(maxValue, tempDeployTime(vv,j) + TIMEINSERT);
+                if (tempTimeStack(vv) > TIMELIMIT)
+                    flag = 0;
+                    break;
+                end
+            end
+            ii = ii + 1;
+            jj = jj + 1;
+            uu = pathSet(u,v,p,ii);
+            vv = pathSet(u,v,p,jj);
+        end
+        if (flag == 0)
+            continue;
+        end
+        uu = pathSet(u,v,p,2);
+        tempDeployTime(uu, j) = maxValue;
+        tempTimeStack(uu) = tempDeployTime(uu,j) + TIMEMODIFY;
+        if (tempTimeStack(uu) > TIMELIMIT)
+            flag = 0;
+            continue;
+        end
+        weight = tempWeight;
+        deployTime = tempDeployTime;
+        timeStack = tempTimeStack;
+        break;
+    end
+    if (flag == 0)
+        countUnchange = countUnchange + 1;
+        p = flowOSPF(j);
+        u = flowStart(j);
+        v = flowTerminal(j);
+        for ii = 1:1:numRoad
+            if (inPath(u,v,p,ii) - DELTA > 0)
+                uu = roadX(ii);
+                vv = roadY(ii);
+                weight(uu,vv) = weight(uu,vv) + flowSize(j);
+                weight(vv,uu) = weight(uu,vv);
+            end
+        end
+    end
+end
+countUnchange
+lamdaGSRU = 0;
+for u = 1:1:numNode
+    for v = 1:1:numNode
+        lamdaGSRU = max(lamdaGSRU, weight(u,v) / capacity(u,v));
+    end
+end
+lamdaGSRU
+%b0 = A * resultGRSU;
+%b0
+%beq0 = Aeq * resultGRSU;
+%beq0
 %b0
 %A(:,1:10)
 
+%{
 A = zeros(numNode, NN);
 for i = 1:1:numNode
     for j = 1:1:FLOWNUM
@@ -257,7 +358,7 @@ for i = 1:1:numNode
     end
 end
 delayCountGRSU
-
+%}
 %%%%%%%%%%%%%%      obtain the solution of MCF    %%%%%%%%%%%%%%%%
 
 
@@ -310,6 +411,7 @@ delayCountMCF = 0;
 for i = 1:1:numNode
     if (timeDelay(i) > TIMELIMIT)
         delayCountMCF = delayCountMCF + 1;
+        timeDelay(i)
     end
 end
 delayCountMCF
