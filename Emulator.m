@@ -7,19 +7,26 @@
 
 %format long g;
 function [lamdaOSPF, lamdaOPT, lamdaGRSU, lamdaMCF, maxTimeDelayMCF] = Emulator(FLOWNUM, QUANTITY, TIMELIMIT, INPUTFILE)
-global nextNode pre numNode INFINITY
-DELTA = 1E-8;
+
+global numNode numSwitch numHost nextNode pre capacity
+global roadX roadY cost numRoad numLine
+global flowStart flowTerminal flowSize INFINITY DELTA
+global inPath pathSet flowOSPF
+
 %%%%%%%%%%      environment setting   %%%%%%%%
 %%%%%%%%%%%     version 1 (small)     %%%%%%%%
 
 %FLOWNUM = 5000;
-INFINITY = 10000000;
+
 %QUANTITY = 5;
-TIMEMODIFY = 0.02;
-TIMEINSERT = 0.02;
+TIMEMODIFY = 0.015;
+TIMEINSERT = 0.01;
 %TIMELIMIT = 5;
 %INPUTFILE = 'input_20_10.txt';
-
+TIMESEG = 0.005;
+NUMSEG = TIMELIMIT / TIMESEG;
+NUMINSERTSEG = TIMEINSERT / TIMESEG;
+NUMMODIFYSEG = TIMEMODIFY / TIMESEG;
 
 %%%%%%%%%%%     version 2 (big)     %%%%%%%%%%
 %{
@@ -32,111 +39,12 @@ TIMELIMIT = 5;
 INPUTFILE = 'input_200_100.txt';
 %}
 
-%%%%%%%%%%          get the graph   %%%%%%%%%%
-numNode = 0;
-numSwitch = 0;
-numHost = 0;
-fileIn = fopen(INPUTFILE,'r');
-numNode = fscanf(fileIn, '%d', 1);
-numHost = fscanf(fileIn, '%d', 1);
-numSwitch = fscanf(fileIn, '%d', 1);
 
-numLine = fscanf(fileIn, '%d', 1);
-
-numRoad = 0;
-cost = ones(numNode, numNode) * INFINITY;
-pre = zeros(1, numNode);
-nextNode = zeros(numNode, numNode);
-capacity = zeros(numNode, numNode);
-roadX = zeros(1, numNode * numNode);
-roadY = zeros(1, numNode * numNode);
-for line = 1:1:numLine
-    v = fscanf(fileIn, '%d', 1);
-    u = fscanf(fileIn, '%d', 1);
-    if (cost(v,u) >= INFINITY - DELTA)
-        numRoad = numRoad + 1;
-        roadX(numRoad) = u;
-        roadY(numRoad) = v;
-        cost(v,u) = 1;
-        cost(u,v) = 1;
-        pre(u) = pre(u) + 1;
-        nextNode(u, pre(u)) = v;
-        pre(v) = pre(v) + 1;
-        nextNode(v, pre(v)) = u;
-        capacity(u,v) = randi([2*15,3*15]);
-        capacity(v,u) = capacity(u,v);
-    end 
-end
-
-%%%%%%%%%%          generate the flows     %%%%%%%%%%%%%%%
-flowStart = zeros(1, FLOWNUM);
-flowTerminal = zeros(1, FLOWNUM);
-flowSize = zeros(1, FLOWNUM);
-for i = 1:1:FLOWNUM
-    randArray = randperm(numHost);
-    u = randArray(1);
-    v = randArray(2);
-    flowStart(i) = u;
-    flowTerminal(i) = v;
-    %flowSize(i) = randi([20,30]) / 1000;
-end
-BIGFLOWNUM = FLOWNUM / 5;
-for i = 1:1:BIGFLOWNUM
-    flowSize(i) = randi([20,30]) * 4 / 1000;
-end
-for i = BIGFLOWNUM+1:1:FLOWNUM
-    flowSize(i) = randi([20,30]) / 1000 / 4;
-end
-%%%%%%%%%%          create feasible pathes    %%%%%%%%%%%%
-
-%pathSet1 = CreatePath(cost, 10, 4, 5);
-%pathSet1
-
-pathSet = zeros(numNode, numNode, QUANTITY, numNode);
-for u = 1:1:numNode
-    for v = 1:1:numNode
-        if u ~= v
-            pathSet(u,v,:,:) = CreatePath(cost, u, v, QUANTITY);
-        else
-         %   pathSet(u,v) = [];
-        end
-        
-    end
-end
-inPath = zeros(numNode, numNode, QUANTITY, numRoad);
-for u = 1:1:numNode
-    for v = 1:1:numNode
-        if u ~= v
-        for p = 1:1:QUANTITY
-            i = 1;
-            j = 2;
-            uu = pathSet(u,v,p,i);
-            vv = pathSet(u,v,p,j);
-            while (vv ~= 0)
-                for tempRoad = 1:1:numRoad
-                    uuu = roadX(tempRoad);
-                    vvv = roadY(tempRoad);
-                    if ((uu == uuu) && (vv == vvv))||((uu == vvv) && (vv == uuu))
-                        inPath(u, v, p, tempRoad) = 1;
-                    end
-                end
-                i = i + 1;
-                j = j + 1;
-                uu = pathSet(u,v,p,i);
-                vv = pathSet(u,v,p,j);
-            end
-        end
-        end
-    end
-end
 
 
 
 %%%%%%%%%%%   obtain the original(OSPF) state  %%%%%%%%%%%%%%
-flowOSPF = zeros(1, FLOWNUM);
-for i = 1:1:FLOWNUM
-    flowOSPF(i) = randi(QUANTITY);
-end
+
 lamdaOSPF = 0;
 for i = 1:1:numRoad
     lamdaTemp = 0;
@@ -228,11 +136,12 @@ end
 beq = ones(FLOWNUM, 1);
 
 lb = zeros(NN, 1);
-ub = [ones(NN-1, 1); 10];
+ub = [ones(NN-1, 1); 100000];
 tic;
 %options = optimset('Display' , 'off' , 'LargeScale' , 'off' , 'Simplex' , 'on');
-options = optimset('Display' , 'final' , 'LargeScale' , 'on' , 'Simplex' , 'on');
-resultGRSU = linprog(f,A,b,Aeq,beq,lb,ub,[],options);
+options = optimset('Display' , 'on' , 'LargeScale' , 'on' , 'Simplex' , 'on','maxiter',90000000);
+[resultGRSU, fval, exitflag, output, lambdaFin] = linprog(f,A,b,Aeq,beq,lb,ub,[],options);
+exitflag
 %resultGRSU = linprog(f,A,b,Aeq,beq,lb,ub);
 toc;
 
@@ -243,13 +152,16 @@ lamdaOPT
 
 %%%%%%%%%%%%%%%         Greedy Part             %%%%%%%%%%%%%%%%%%%%%%%%
 weight = zeros(numNode, numNode);
-deployTime = zeros(numNode, FLOWNUM);
-timeStack = zeros(1, numNode);
+%deployTime = zeros(1, numNode);
+%timeStack = zeros(1, numNode);
+timeStack = zeros(numNode, NUMSEG);
 
 tempWeight = zeros(numNode, numNode);
-tempDeployTime = zeros(numNode, FLOWNUM);
-tempTimeStack = zeros(1, numNode);
+%tempDeployTime = zeros(1, numNode);
+%tempTimeStack = zeros(1, numNode);
+timeStack = zeros(numNode, NUMSEG);
 
+%{
 z = zeros(1, FLOWNUM);
 for i = 1:1:FLOWNUM
     p = flowOSPF(i);
@@ -329,6 +241,150 @@ for i = 1:1:FLOWNUM
         end
     end
 end
+%}
+
+z = zeros(1, FLOWNUM);
+for i = 1:1:FLOWNUM
+    p = flowOSPF(i);
+    z(i) = 1 - resultGRSU((i-1) * QUANTITY + p);
+end
+[zTemp, zDescend] = sort(z, 'descend');
+countUnchange = 0;
+tempInsertSeg = zeros(1, NUMINSERTSEG);
+tempModifySeg = zeros(1, NUMMODIFYSEG);
+tic
+for i = 1:1:FLOWNUM
+    j = zDescend(i);      %%% choose the flow j  
+    %FLOWNUM
+    tempY = resultGRSU((j-1)*QUANTITY + 1 : j*QUANTITY);
+    [yTemp, yDescend] = sort(tempY, 'descend');
+    
+    tempWeight = weight;
+    %tempDeployTime = deployTime;
+    tempTimeStack = timeStack; 
+    flag = 1;
+    %%%%%%%%%%    try to contain the best flow   %%%%%%%%%%%
+    for k = 1:1:QUANTITY
+        p = yDescend(k);    %%%% choose path NO.p
+        %%%%%%%%%%%%%   try   %%%%%%%%%%%%%%%%%
+        u = flowStart(j);
+        v = flowTerminal(j);
+        ii = 1;
+        jj = 2;
+        uu = pathSet(u,v,p,ii);
+        vv = pathSet(u,v,p,jj);
+        maxValueSeg = 1;
+        while (vv ~= 0)
+            
+            tempWeight(uu,vv) = tempWeight(uu,vv) + flowSize(j);
+            tempWeight(vv,uu) = tempWeight(uu,vv);
+            if (tempWeight(uu,vv) > capacity(uu,vv))
+                flag = 0;
+                break;
+            end
+            
+            if ((jj > 2) && (vv >numHost))
+                %%tempDeployTime(vv, j) = tempTimeStack(vv);
+                %%tempTimeStack(vv) = tempTimeStack(vv) + TIMEINSERT;
+                found = 0;
+                probe = 1;
+                while (probe <= NUMSEG - NUMINSERTSEG+1)
+                    tempSum = sum(tempTimeStack(vv, probe:probe+NUMINSERTSEG-1));
+                    if (tempSum - DELTA > 0)
+                        probe = probe + tempSum;
+                        continue;
+                    end
+                    found = 1;
+                    break;
+                end
+                %{
+                for probe = 1:1:(NUMSEG - NUMINSERTSEG)
+                    %tempInsertSeg = tempTimeStack(vv, probe:probe+NUMINSERTSEG);
+                    %if (sum(tempInsertSeg(1:NUMINSERTSEG)) - DELTA > 0)
+                    if (sum(tempTimeStack(vv, probe:probe+NUMINSERTSEG)) - DELTA > 0)
+                        continue;
+                    end
+                    found = 1;
+                    break;
+                end
+                %}
+                if (found == 0)
+                    flag = 0;
+                    break;
+                end
+                tempTimeStack(vv, probe:probe+NUMINSERTSEG) = 1;
+               % tempDeployTime(vv) = (probe - 1) * TIMESEG;
+                maxValueSeg = max(maxValueSeg, probe + NUMINSERTSEG);
+                
+                
+            end
+            ii = ii + 1;
+            jj = jj + 1;
+            uu = pathSet(u,v,p,ii);
+            vv = pathSet(u,v,p,jj);
+        end
+        
+        if (flag == 0)
+            continue;
+        end
+        uu = pathSet(u,v,p,2);
+        found = 0;
+        
+        probe = maxValueSeg;
+        while (probe <= NUMSEG-NUMMODIFYSEG + 1)
+            tempSum = sum(tempTimeStack(uu, probe:probe+NUMMODIFYSEG-1));
+            if (tempSum - DELTA > 0)
+                probe = probe + tempSum;
+                continue;
+            end
+            found = 1;
+            break;
+        end
+        %{
+        for probe = maxValueSeg:1:NUMSEG - NUMMODIFYSEG
+             %tempModifySeg = tempTimeStack(uu, probe:probe+NUMMODIFYSEG);
+             %if (sum(tempModifySeg(1:NUMMODIFYSEG)) - DELTA > 0)
+             if (sum(tempTimeStack(uu, probe:probe+NUMMODIFYSEG)) - DELTA > 0)
+                continue;
+             end
+             found = 1;
+             break;
+        end
+        %}
+        if (found == 0)
+            flag = 0; 
+            continue;
+        end
+        tempTimeStack(uu, probe:probe+NUMMODIFYSEG) = 1;
+        %tempDeployTime(uu) = (probe - 1) * TIMESEG;
+        %tempDeployTime(uu, j) = maxValueSeg;
+        %tempTimeStack(uu) = tempDeployTime(uu,j) + TIMEMODIFY;
+        %if (tempTimeStack(uu) > TIMELIMIT)
+        %    flag = 0;
+        %    continue;
+        %end
+        weight = tempWeight;
+       % deployTime = tempDeployTime;
+        timeStack = tempTimeStack;
+        break;
+    end
+    if (flag == 0)
+        countUnchange = countUnchange + 1;
+        p = flowOSPF(j);
+        u = flowStart(j);
+        v = flowTerminal(j);
+        for ii = 1:1:numRoad
+            if (inPath(u,v,p,ii) - DELTA > 0)
+                uu = roadX(ii);
+                vv = roadY(ii);
+                weight(uu,vv) = weight(uu,vv) + flowSize(j);
+                weight(vv,uu) = weight(uu,vv);
+            end
+        end
+    end
+end
+
+toc
 countUnchange
 lamdaGRSU = 0;
 for u = 1:1:numNode
@@ -405,6 +461,52 @@ tic;
 options = optimset('Display' , 'off' , 'LargeScale' , 'on' , 'Simplex' , 'on');
 resultMCF = linprog(f,A,b,Aeq,beq,lb,ub,[],options);
 toc;
+%{
+for i = 1:1:FLOWNUM
+    tempMax = 0;
+    maxJ = 0;
+    for j = 1:1:QUANTITY
+        if (resultMCF((i-1)*QUANTITY+j) > tempMax)
+            tempMax = resultMCF((i-1)*QUANTITY+j);
+            maxJ = j;
+        end
+    end
+    if maxJ == 0
+        pause(5000);
+        break;
+    end
+    flowMCF(i) = maxJ;
+end
+%}
+for i = 1:1:FLOWNUM
+    randNum = rand;
+    j = 1;
+    while (randNum > resultMCF((i-1) * QUANTITY + j)) && (j < QUANTITY)
+        randNum = randNum - resultMCF((i-1) * QUANTITY + j);
+        j = j + 1;
+    end
+    flowMCF(i) = j;
+end
+lamdaMCF = 0;
+for i = 1:1:numRoad
+    lamdaTemp = 0;
+    for j = 1:1:FLOWNUM
+        p = flowMCF(j);
+        u = flowStart(j);
+        v = flowTerminal(j);
+        if inPath(u,v,p,i) - DELTA > 0
+            lamdaTemp = lamdaTemp + flowSize(j);
+        end
+    end
+    u = roadX(i);
+    v = roadY(i);
+    lamdaTemp = lamdaTemp / capacity(u,v);
+    lamdaMCF = max(lamdaMCF, lamdaTemp);
+end
+lamdaMCF
+lamdaMCF = resultMCF(end);
+lamdaMCF
+
 A = zeros(numNode, NN);
 for i = 1:1:numNode
     for j = 1:1:FLOWNUM
@@ -424,8 +526,7 @@ for i = 1:1:numNode
 end
 delayCountMCF
 maxTimeDelayMCF
-lamdaMCF = resultMCF(end);
-lamdaMCF
+
 
 
 
